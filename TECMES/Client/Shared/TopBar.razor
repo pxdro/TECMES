@@ -1,0 +1,23 @@
+﻿@inject ILocalStorageService LocalStorage
+@inject NavigationManager NavigationManager
+
+<AuthorizeView>
+    <Authorized>
+        <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" JustifyContent="JustifyContent.SpaceBetween">
+            <RadzenText TextStyle="TextStyle.H5" class="rz-color-white">TECMES</RadzenText>
+            <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" JustifyContent="JustifyContent.End">
+                <RadzenText class="rz-color-white">@context.User.Identity!.Name</RadzenText>
+                <RadzenButton ButtonStyle="ButtonStyle.Danger" Size="ButtonSize.Small" Icon="exit_to_app" Click="@Logout" />
+            </RadzenStack>          
+        </RadzenStack>
+    </Authorized>
+</AuthorizeView>
+
+@code{
+    void Logout()
+    {
+        LocalStorage.RemoveItemAsync("token");
+        LocalStorage.RemoveItemAsync("usuario");
+        NavigationManager.NavigateTo("/login");
+    }
+}

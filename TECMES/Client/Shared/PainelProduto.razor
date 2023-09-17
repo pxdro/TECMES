@@ -1,0 +1,187 @@
+﻿@inject IProdutoService ProdutoService
+@inject NotificationService NotificationService
+@inject IReloadService ReloadService
+
+<RadzenCard Variant="Variant.Outlined" class="rz-border-black rz-m-0 rz-p-2">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="5px" class="rz-mb-4">
+        <RadzenButton ButtonStyle="ButtonStyle.Success" Icon="add_circle_outline" Click="@InsertRow" Size="ButtonSize.ExtraSmall"
+                      Disabled=@(produtoToInsert != null || produtoToUpdate != null) />
+        <RadzenText TextStyle="TextStyle.H6" Text="Produtos"></RadzenText>
+    </RadzenStack>
+
+    <RadzenDataGrid @ref="produtosGrid" Data="@produtos" TItem="Produto" RowUpdate="@OnUpdateRow" RowCreate="@OnCreateRow" Sort="@Reset" Page="@Reset" Filter="@Reset" 
+                    AllowColumnReorder="true" AllowColumnResize="true" AllowAlternatingRows="false" AllowFiltering="true" AllowSorting="true" AllowMultiColumnSorting="true" AllowPaging="true"
+                    EditMode="DataGridEditMode.Single" FilterMode="FilterMode.Advanced" Density="Density.Compact" PageSize="3"
+                    AndOperatorText="E" OrOperatorText="Ou" EndsWithText="Termina com" StartsWithText="Começa com" FilterText="Filtro" EnumFilterSelectText="Selecione..."
+                    GreaterThanOrEqualsText="Maior ou igual à" LessThanOrEqualsText="Menor ou igual à" GreaterThanText="Maior que" LessThanText="Menor que"
+                    ContainsText="Contém" EqualsText="Igual à" NotEqualsText="Diferente de" ApplyFilterText="Aplicar" ClearFilterText="Limpar" DoesNotContainText="Não contém"
+                    IsNullText="É nulo" IsNotNullText="Não é nulo" IsEmptyText="É vazio" IsNotEmptyText="Não é vazio" EmptyText="Não existem dados">
+        <Columns>
+            <RadzenDataGridColumn TItem="Produto" Property="Id" Title="Id" />
+            <RadzenDataGridColumn TItem="Produto" Property="Nome" Title="Nome">
+                <EditTemplate Context="produto">
+                    <RadzenTextBox @bind-Value="produto.Nome" Style="width:100%; display: block" Name="Nome" />
+                    <RadzenRequiredValidator Text="Nome é necessário" Component="Nome" />
+                </EditTemplate>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="Produto" Context="produto" Filterable="false" Sortable="false" TextAlign="TextAlign.Right" Width="100px">
+                <Template Context="produto">
+                    <RadzenButton Icon="edit" ButtonStyle="ButtonStyle.Light" Variant="Variant.Flat" Size="ButtonSize.ExtraSmall" Click="@(args => EditRow(produto))" @onclick:stopPropagation="true"/>
+                    <RadzenButton ButtonStyle="ButtonStyle.Danger" Icon="delete" Variant="Variant.Flat" Shade="Shade.Lighter" Size="ButtonSize.ExtraSmall" class="my-1 ms-1" Click="@(args => DeleteRow(produto))" @onclick:stopPropagation="true"/>
+                </Template>
+                <EditTemplate Context="produto">
+                    <RadzenButton Icon="check" ButtonStyle="ButtonStyle.Success" Variant="Variant.Flat" Size="ButtonSize.ExtraSmall" Click="@((args) => SaveRow(produto))"/>
+                    <RadzenButton Icon="close" ButtonStyle="ButtonStyle.Light" Variant="Variant.Flat" Size="ButtonSize.ExtraSmall" class="my-1 ms-1" Click="@((args) => CancelEdit(produto))"/>
+                    <RadzenButton ButtonStyle="ButtonStyle.Danger" Icon="delete" Variant="Variant.Flat" Shade="Shade.Lighter" Size="ButtonSize.ExtraSmall" class="my-1 ms-1" Click="@(args => DeleteRow(produto))"/>
+                </EditTemplate>
+            </RadzenDataGridColumn>
+        </Columns>
+    </RadzenDataGrid>
+</RadzenCard>
+
+@code {
+    RadzenDataGrid<Produto> produtosGrid = new();
+    IEnumerable<Produto>? produtos = new List<Produto>();
+
+    Produto? produtoToInsert;
+    Produto? produtoToUpdate;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await base.OnInitializedAsync();
+        await ObterTodos();
+        ReloadService.RegisterEvent("Reload", HandleReloadRequested);
+    }
+
+    private async void HandleReloadRequested()
+    {
+        await Reload();
+    }
+
+    void Reset()
+    {
+        produtoToInsert = null;
+        produtoToUpdate = null;
+    }
+
+    async Task Reload()
+    {
+        Reset();
+        await ObterTodos();
+        await produtosGrid.Reload();
+        StateHasChanged();
+    }   
+
+    async Task EditRow(Produto produto)
+    {
+        produtoToUpdate = produto;
+        await produtosGrid.EditRow(produto);
+    }
+
+    async Task OnUpdateRow(Produto produto)
+    {
+        Reset();
+        await Atualizar(produto);
+        ReloadService.RaiseEvent("Reload");
+    }
+
+    async Task SaveRow(Produto produto)
+    {
+        await produtosGrid.UpdateRow(produto);
+        await Reload();
+    }
+
+    async Task CancelEdit(Produto produto)
+    {
+        produtosGrid.CancelEditRow(produto);
+        await Reload();
+    }
+
+    async Task DeleteRow(Produto produto)
+    {
+        if (produtos != null && produtos.Contains(produto))
+            await Remover(produto.Id);
+        else
+            produtosGrid.CancelEditRow(produto);
+
+        await Reload();
+        ReloadService.RaiseEvent("Reload");
+    }
+
+    async Task InsertRow()
+    {
+        produtoToInsert = new Produto();
+        await produtosGrid.InsertRow(produtoToInsert);
+    }
+
+    async Task OnCreateRow(Produto produto)
+    {
+        await Adicionar(produto);
+        produtoToInsert = null;
+        ReloadService.RaiseEvent("Reload");
+    }
+
+    async Task ObterTodos()
+    {
+        try
+        {
+            produtos = await ProdutoService.ObterTodos();
+        }
+        catch (Exception ex)
+        {
+            Notify(NotificationSeverity.Error, "Erro: ", ex.Message, 4000);
+        }
+    }
+
+    async Task Adicionar(Produto produto)
+    {
+        try
+        {
+            await ProdutoService.Adicionar(produto);
+            Notify(NotificationSeverity.Success, "Produto ", "adicionado com sucesso", 4000);
+        }
+        catch (Exception ex)
+        {
+            Notify(NotificationSeverity.Error, "Erro: ", ex.Message, 4000);
+        }
+    }
+
+    async Task Atualizar(Produto produto)
+    {
+        try
+        {
+            await ProdutoService.Atualizar(produto);
+            Notify(NotificationSeverity.Success, "Produto ", "atualizado com sucesso", 4000);
+        }
+        catch (Exception ex)
+        {
+            Notify(NotificationSeverity.Error, "Erro: ", ex.Message, 4000);
+        }
+    }
+
+    async Task Remover(Guid id)
+    {
+        try
+        {
+            await ProdutoService.Remover(id);
+            Notify(NotificationSeverity.Success, "Produto ", "removido com sucesso", 4000);
+        }
+        catch (Exception ex)
+        {
+            Notify(NotificationSeverity.Error, "Erro: ", ex.Message, 4000);
+        }
+    }
+
+    void Notify(NotificationSeverity severity, string summary, string detail, double duration)
+    {
+        NotificationMessage message = new NotificationMessage
+            {
+                Severity = severity,
+                Summary = summary,
+                Detail = detail,
+                Duration = duration
+            };
+
+        NotificationService.Notify(message);
+    }
+}

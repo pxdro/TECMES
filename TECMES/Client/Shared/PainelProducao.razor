@@ -1,0 +1,230 @@
+﻿@inject IProducaoService ProducaoService
+@inject IOrdemProducaoService OrdemProducaoService
+@inject NotificationService NotificationService
+@inject IReloadService ReloadService
+
+<RadzenCard Variant="Variant.Outlined" class="rz-border-black rz-m-0 rz-p-2">
+    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="5px" class="rz-mb-4">
+        <RadzenButton ButtonStyle="ButtonStyle.Success" Icon="add_circle_outline" Click="@InsertRow" Size="ButtonSize.ExtraSmall"
+                      Disabled=@(producaoToInsert != null || producaoToUpdate != null) />
+        <RadzenText TextStyle="TextStyle.H6" Text="Produções"></RadzenText>
+    </RadzenStack>
+
+    <RadzenDataGrid @ref="producoesGrid" Data="@producoes" TItem="Producao" RowUpdate="@OnUpdateRow" RowCreate="@OnCreateRow" Sort="@Reset" Page="@Reset" Filter="@Reset"
+                    AllowColumnReorder="true" AllowColumnResize="true" AllowAlternatingRows="false" AllowFiltering="true" AllowSorting="true" AllowMultiColumnSorting="true" AllowPaging="true"
+                    EditMode="DataGridEditMode.Single" FilterMode="FilterMode.Advanced" Density="Density.Compact" PageSize="3"
+                    AndOperatorText="E" OrOperatorText="Ou" EndsWithText="Termina com" StartsWithText="Começa com" FilterText="Filtro" EnumFilterSelectText="Selecione..."
+                    GreaterThanOrEqualsText="Maior ou igual à" LessThanOrEqualsText="Menor ou igual à" GreaterThanText="Maior que" LessThanText="Menor que"
+                    ContainsText="Contém" EqualsText="Igual à" NotEqualsText="Diferente de" ApplyFilterText="Aplicar" ClearFilterText="Limpar" DoesNotContainText="Não contém"
+                    IsNullText="É nulo" IsNotNullText="Não é nulo" IsEmptyText="É vazio" IsNotEmptyText="Não é vazio" EmptyText="Não existem dados">
+        <Columns>
+            <RadzenDataGridColumn TItem="Producao" Property="Id" Title="Id" />
+            <RadzenDataGridColumn TItem="Producao" Property="OrdemProducaoId" Title="Id Ordem Producao">                
+                <EditTemplate Context="producao">
+                    @if (producao.OrdemProducao == null)
+                    {
+                        <RadzenDropDown @bind-Value="producao.OrdemProducaoId" Data="@ordensProducaoLiberadasENaoUtilizadas" TextProperty="Id" ValueProperty="Id" Style="width:100%; display: block;" Name="OrdemProducaoId" />
+                        <RadzenRequiredValidator Text="Ordem de Produção é necessário" Component="OrdemProducaoId" />
+                    }
+                </EditTemplate>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="Producao" Property="OrdemProducao.Quantidade" Title="Total"/>
+            <RadzenDataGridColumn TItem="Producao" Property="Produzido" Title="Produzido">
+                <EditTemplate Context="producao">
+                    @if (producao.OrdemProducao != null)
+                    {
+                        <RadzenNumeric Min="0" Max="producao.OrdemProducao.Quantidade" @bind-Value="producao.Produzido" Style="width:100%; display: block" Name="Produzido" />
+                        <RadzenRequiredValidator Text="Produzido é necessária" Component="Produzido" />                        
+                    }
+                </EditTemplate>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="Producao" Context="producao" Filterable="false" Sortable="false" TextAlign="TextAlign.Right" Width="100px">
+                
+                <Template Context="producao">
+                    @if (producao.OrdemProducao == null || producao.OrdemProducao.Liberado == EnumStatus.Ativo)
+                    {
+                        <RadzenButton Icon="edit" ButtonStyle="ButtonStyle.Light" Variant="Variant.Flat" Size="ButtonSize.ExtraSmall" Click="@(args => EditRow(producao))" @onclick:stopPropagation="true" />
+                        <RadzenButton ButtonStyle="ButtonStyle.Danger" Icon="delete" Variant="Variant.Flat" Shade="Shade.Lighter" Size="ButtonSize.ExtraSmall" class="my-1 ms-1" Click="@(args => DeleteRow(producao))" @onclick:stopPropagation="true" />
+                    }
+                </Template>
+                <EditTemplate Context="producao">
+                    @if (producao.OrdemProducao == null || producao.OrdemProducao.Liberado == EnumStatus.Ativo)
+                    {
+                        <RadzenButton Icon="check" ButtonStyle="ButtonStyle.Success" Variant="Variant.Flat" Size="ButtonSize.ExtraSmall" Click="@((args) => SaveRow(producao))" />
+                        <RadzenButton Icon="close" ButtonStyle="ButtonStyle.Light" Variant="Variant.Flat" Size="ButtonSize.ExtraSmall" class="my-1 ms-1" Click="@((args) => CancelEdit(producao))" />
+                        <RadzenButton ButtonStyle="ButtonStyle.Danger" Icon="delete" Variant="Variant.Flat" Shade="Shade.Lighter" Size="ButtonSize.ExtraSmall" class="my-1 ms-1" Click="@(args => DeleteRow(producao))" />
+                    }
+                </EditTemplate>
+            </RadzenDataGridColumn>
+        </Columns>
+    </RadzenDataGrid>
+</RadzenCard>
+
+@code {
+    RadzenDataGrid<Producao> producoesGrid = new();
+    IEnumerable<Producao>? producoes = new List<Producao>();
+
+    IEnumerable<OrdemProducao>? ordensProducaoLiberadasENaoUtilizadas;
+
+    Producao? producaoToInsert;
+    Producao? producaoToUpdate;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await base.OnInitializedAsync();
+        await ObterTodasProducoes();
+        await ObterOrdensProducaoAtivas();
+        ReloadService.RegisterEvent("Reload", HandleReloadRequested);
+    }
+
+    private async void HandleReloadRequested()
+    {
+        await Reload();
+    }
+
+    void Reset()
+    {
+        producaoToInsert = null;
+        producaoToUpdate = null;
+    }
+
+    async Task Reload()
+    {
+        Reset();
+        await ObterTodasProducoes();
+        await ObterOrdensProducaoAtivas();
+        await producoesGrid.Reload();
+        StateHasChanged();
+    }
+
+    async Task EditRow(Producao producao)
+    {
+        producaoToUpdate = producao;
+        await producoesGrid.EditRow(producao);
+    }
+
+    async Task OnUpdateRow(Producao producao)
+    {
+        Reset();
+        await Atualizar(producao);
+        ReloadService.RaiseEvent("Reload");
+    }
+
+    async Task SaveRow(Producao producao)
+    {
+        await producoesGrid.UpdateRow(producao);
+        await Reload();
+    }
+
+    async Task CancelEdit(Producao producao)
+    {
+        producoesGrid.CancelEditRow(producao);
+        await Reload();
+    }
+
+    async Task DeleteRow(Producao producao)
+    {
+        if (producoes != null && producoes.Contains(producao))
+            await Remover(producao.Id);
+        else
+            producoesGrid.CancelEditRow(producao);
+
+        await Reload();
+        ReloadService.RaiseEvent("Reload");
+    }
+
+    async Task InsertRow()
+    {
+        producaoToInsert = new Producao();
+        await producoesGrid.InsertRow(producaoToInsert);
+    }
+
+    async Task OnCreateRow(Producao producao)
+    {
+        await Adicionar(producao);
+        producaoToInsert = null;
+        ReloadService.RaiseEvent("Reload");
+    }
+
+    async Task ObterOrdensProducaoAtivas()
+    {
+        try
+        {
+            var ordensProducao = await OrdemProducaoService.ObterTodos();
+            // Considera somente liberados
+            ordensProducaoLiberadasENaoUtilizadas = ordensProducao == null ? null : ordensProducao.Where(ordemProducao => ordemProducao.Liberado == EnumStatus.Ativo);
+
+            // Considera somente não utilizados
+            if (ordensProducaoLiberadasENaoUtilizadas != null && producoes != null)
+                ordensProducaoLiberadasENaoUtilizadas = ordensProducaoLiberadasENaoUtilizadas.Where(ordem => !producoes.Any(producao => producao.OrdemProducaoId == ordem.Id));
+        }
+        catch (Exception ex)
+        {
+            Notify(NotificationSeverity.Error, "Erro: ", ex.Message, 4000);
+        }
+    }
+
+    async Task ObterTodasProducoes()
+    {
+        try
+        {
+            producoes = await ProducaoService.ObterTodos();
+        }
+        catch (Exception ex)
+        {
+            Notify(NotificationSeverity.Error, "Erro: ", ex.Message, 4000);
+        }
+    }
+
+    async Task Adicionar(Producao producao)
+    {
+        try
+        {
+            await ProducaoService.Adicionar(producao);
+            Notify(NotificationSeverity.Success, "Produção ", "adicionada com sucesso", 4000);
+        }
+        catch (Exception ex)
+        {
+            Notify(NotificationSeverity.Error, "Erro: ", ex.Message, 4000);
+        }
+    }
+
+    async Task Atualizar(Producao producao)
+    {
+        try
+        {
+            await ProducaoService.Atualizar(producao);
+            Notify(NotificationSeverity.Success, "Produção ", "atualizada com sucesso", 4000);
+        }
+        catch (Exception ex)
+        {
+            Notify(NotificationSeverity.Error, "Erro: ", ex.Message, 4000);
+        }
+    }
+
+    async Task Remover(Guid id)
+    {
+        try
+        {
+            await ProducaoService.Remover(id);
+            Notify(NotificationSeverity.Success, "Produção ", "removida com sucesso", 4000);
+        }
+        catch (Exception ex)
+        {
+            Notify(NotificationSeverity.Error, "Erro: ", ex.Message, 4000);
+        }
+    }
+
+    void Notify(NotificationSeverity severity, string summary, string detail, double duration)
+    {
+        NotificationMessage message = new NotificationMessage
+            {
+                Severity = severity,
+                Summary = summary,
+                Detail = detail,
+                Duration = duration
+            };
+
+        NotificationService.Notify(message);
+    }
+}
